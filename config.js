@@ -1,0 +1,1 @@
+export const motorway_prefix = 'Автомагистрала';
