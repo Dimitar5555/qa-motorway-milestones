@@ -22,36 +22,38 @@ function fetch_milestones_for_motorway(motorway) {
 }
 
 function preprocess_osm_data(milestones) {
-    const to_return = milestones.map(milestone => ({
-        coords: [milestone.lat, milestone.lon],
-        distance: Number(milestone.tags.distance),
-        osm_id: milestone.id,
-        suspicious: milestone.tags.fixme || milestone.tags.note
+    const to_return = milestones.map(({lat, lon, tags, id}) => ({
+        coords: [lat, lon],
+        distance: Number(tags.distance),
+        osm_id: id,
+        suspicious: tags.fixme || tags.note
     }));
     return to_return;
 }
 
 function merge_close_milestones(milestones) {
     for(let i = milestones.length - 1; i>0; i--) {
-        let current = milestones[i];
+        const current = milestones[i];
         if(current.double) {
             continue;
         }
-        let first_occurance_index = milestones.findIndex((poteintial_match, i2) => i!=i2 && poteintial_match.distance === current.distance);
+        const first_occurance_index = milestones.findIndex((potential_match, j) =>
+            i != j && potential_match.distance === current.distance);
         if(first_occurance_index != -1) {
+            const found = milestones[first_occurance_index];
             const coords1 = current.coords;
-            const coords2 = milestones[first_occurance_index].coords;
+            const coords2 = found.coords;
             const distance_between = distance(coords1, coords2, {units: 'meters'});
             if(distance_between > 100) {
                 continue;
             }
-            let removed = milestones.splice(i, 1)[0];
-            milestones[first_occurance_index].coords = [
-                (milestones[first_occurance_index].coords[0] + removed.coords[0])/2,
-                (milestones[first_occurance_index].coords[1] + removed.coords[1])/2
+            found.coords = [
+                (coords1[0] + coords2[0]) / 2,
+                (coords1[1] + coords2[1]) / 2
             ];
-            milestones[first_occurance_index].double = true;
-            milestones[first_occurance_index].osm_id += ';' + removed.osm_id;
+            found.double = true;
+            found.osm_id += ';' + current.osm_id;
+            milestones.splice(i, 1)[0];
         }
         else {
             milestones[i].double = false;
@@ -61,13 +63,13 @@ function merge_close_milestones(milestones) {
 }
 
 function validate_milestones(milestones, ranges, are_doubles) {    
-    let missing = [];
-    let duplicated = [];
-    let seen = [];
+    const missing = [];
+    const duplicated = [];
+    const seen = [];
     
-    for(const range of ranges) {
-        for(let i=range[0];i<range[1];i++) {
-            if(!milestones.find(e => e.distance == i)) {
+    for(const [start, end] of ranges) {
+        for(let i = start; i < end; i++) {
+            if(!milestones.find(e => e.distance === i)) {
                 missing.push(i);
                 continue;
             }
@@ -81,32 +83,32 @@ function validate_milestones(milestones, ranges, are_doubles) {
         }
     }
 
-    let out_of_range = milestones.map(d => d.distance).filter(distance => !is_number_in_ranges(distance, ranges));
-    let single = milestones.filter(ml => are_doubles && !ml.double).map(ml=>ml.distance);
-    
-
+    const out_of_range = milestones.map(d => d.distance).filter(distance => !is_number_in_ranges(distance, ranges));
+    const single = milestones.filter(ml => are_doubles && !ml.double).map(ml=>ml.distance);
     return {missing, duplicated, out_of_range, single, milestones};
 }
 
 async function run() {
     const motorways = JSON.parse(fs.readFileSync('./data.json'));
-    const final_data = [];
-    for(let motorway of motorways) {
-        let data = preprocess_osm_data(await fetch_milestones_for_motorway(motorway))
-        .filter(marker => !Number.isNaN(marker.distance));
-        motorway.milestones = data;
-        merge_close_milestones(motorway.milestones);
-        let possibly_invalid_milestones = validate_milestones(motorway.milestones, motorway.ranges);
-        //let missing_milestones = find_missing_milestones(motorway.milestones/*.filter(ml => ml.double)*/.map(ml => ml.distance), motorway.ranges);
-        console.log(motorway.name, "missing ", possibly_invalid_milestones.missing, "dupes", possibly_invalid_milestones.duplicated, "invalid", possibly_invalid_milestones.out_of_range, "single", possibly_invalid_milestones.single);
-        final_data.push({
-            name: motorway.name,
-            ranges: motorway.ranges,
-            warnings: possibly_invalid_milestones
+    const motorways_data = [];
+    for(const motorway of motorways) {
+        await fetch_milestones_for_motorway(motorway)
+        .then(data => preprocess_osm_data(data))
+        .then(data => data.filter(marker => !Number.isNaN(marker.distance)))
+        .then(data => {
+            motorway.milestones = data;
+            merge_close_milestones(motorway.milestones);
+            const possibly_invalid_milestones = validate_milestones(motorway.milestones, motorway.ranges);
+            console.log(motorway.name, "missing ", possibly_invalid_milestones.missing, "dupes", possibly_invalid_milestones.duplicated, "invalid", possibly_invalid_milestones.out_of_range, "single", possibly_invalid_milestones.single);
+            motorways_data.push({
+                name: motorway.name,
+                ranges: motorway.ranges,
+                warnings: possibly_invalid_milestones
+            });
         });
     }
     console.log(`Writing to output_data.json`);
-    fs.writeFileSync(`output_data.json`, JSON.stringify(final_data));
+    fs.writeFileSync(`output.json`, JSON.stringify({date: new Date().toISOString(), data: motorways_data}));
 
 }
 
