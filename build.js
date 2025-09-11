@@ -107,8 +107,8 @@ async function run() {
             });
         });
     }
-    console.log(`Writing to output_data.json`);
-    fs.writeFileSync(`output.json`, JSON.stringify({date: new Date().toISOString(), data: motorways_data}));
+    console.log(`Writing to milestones-data.json`);
+    fs.writeFileSync(`milestones-data.json`, JSON.stringify({date: new Date().toISOString(), data: motorways_data}));
 
 }
 
